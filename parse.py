@@ -46,42 +46,76 @@ def parse_base(fileReader, xml):
 
     fileReader.skip_bytes(4) #always CIV5
 
-    version.set('save', str(fileReader.read_int()))
-    version.set('game',fileReader.read_string())
-    version.set('build', fileReader.read_string())
+    save_version = fileReader.read_int()
+    print("Save version:", save_version)
+    version.set('save', str(save_version))
+    
+    game_version = fileReader.read_string()
+    print("Game version:", game_version)
+    version.set('game', game_version)
+    
+    build_version = fileReader.read_string()
+    print("Build version:", build_version)
+    version.set('build', build_version)
 
     game = ET.SubElement(base, 'game')
-    game.set('currentturn', str(fileReader.read_int()))
+    current_turn = fileReader.read_int()
+    print("Current turn:", current_turn)
+    game.set('currentturn', str(current_turn))
 
     fileReader.skip_bytes(1) #TODO: I'll investigate later as to what this byte hold
 
     civilization = ET.SubElement(base, 'civilization')
-    civilization.text = fileReader.read_string()
+    civ_name = fileReader.read_string()
+    print("Civilization:", civ_name)
+    civilization.text = civ_name
 
     handicap = ET.SubElement(base, 'handicap')
-    handicap.text = fileReader.read_string()
+    handicap_level = fileReader.read_string()
+    print("Handicap:", handicap_level)
+    handicap.text = handicap_level
 
     era = ET.SubElement(base, 'era')
-    era.set('starting', fileReader.read_string())
-    era.set('current', fileReader.read_string())
+    starting_era = fileReader.read_string()
+    print("Starting era:", starting_era)
+    era.set('starting', starting_era)
+    current_era = fileReader.read_string()
+    print("Current era:", current_era)
+    era.set('current', current_era)
 
     gamespeed = ET.SubElement(base, 'gamespeed')
-    gamespeed.text = fileReader.read_string()
+    game_speed = fileReader.read_string()
+    print("Game speed:", game_speed)
+    gamespeed.text = game_speed
 
     worldsize = ET.SubElement(base, 'worldsize')
-    worldsize.text = fileReader.read_string()
+    world_size = fileReader.read_string()
+    print("World size:", world_size)
+    worldsize.text = world_size
 
     mapscript = ET.SubElement(base, 'mapscript')
-    mapscript.text = fileReader.read_string()
+    map_script = fileReader.read_string()
+    print("Map script:", map_script)
+    mapscript.text = map_script
 
     fileReader.skip_bytes(4) #TODO: an int
     #
     dlcs = ET.SubElement(base, 'dlcs')
+
+    
     while fileReader.peek_int() != 0:
         fileReader.skip_bytes(16) #TODO: some binary data
         fileReader.skip_bytes(4) #TODO: seems to be always 1
         dlc = ET.SubElement(dlcs, 'dlc')
-        dlc.text = fileReader.read_string()
+        try:
+            dlc_name = fileReader.read_string()
+            print("DLC:", dlc_name)
+            dlc.text = dlc_name
+        except:
+            print("Error reading DLC string")
+            # print("Position:", fileReader.pos)
+            # print("Next int:", fileReader.peek_int())
+            # print("Attempted string:", fileReader.read_string())
     #
     # #Extract block position (separated by \x40\x00\x00\x00 (@) )
     # #I haven't decoded what each of these blocks mean but I'll extract their position for the time being.
@@ -99,6 +133,7 @@ def parse_base(fileReader, xml):
     #contains the type of civilization - 03 human, 01 alive, 04 missing, 02 dead
     fileReader.pos = bit_block_position[2] + 32
     leader_traits = tuple(map(lambda x: x.read(32).intle, fileReader.read_bytes(256).cut(32)))
+    print("\nLeader traits:", [traits.get(trait, f"Unknown({trait})") for trait in leader_traits])
 
     #TODO: block4
     #TODO: block5
@@ -107,10 +142,12 @@ def parse_base(fileReader, xml):
     #block 7
     # contains the list of civilizations
     civilizations = fileReader.read_strings_from_block(bit_block_position[6] + 32, bit_block_position[7])
+    print("\nCivilizations:", civilizations)
 
     #block 8
     #contains the list of leaders
     leaders = fileReader.read_strings_from_block(bit_block_position[7] + 32, bit_block_position[8], True)
+    print("Leaders:", leaders)
 
     #TODO: block9-18
 
@@ -118,6 +155,7 @@ def parse_base(fileReader, xml):
     # contains the civ states. There seems to be a whole bunch of leading 0s.
     fileReader.forward_to_first_non_zero_byte(bit_block_position[18] + 32, bit_block_position[19])
     civStates = fileReader.read_strings_from_block(fileReader.pos, bit_block_position[19], True)
+    print("\nCity-States:", civStates)
 
     #TODO: block 20 - there's a 16 byte long list of 01's
     #TODO: block 21 - seems to be FFs
@@ -128,19 +166,25 @@ def parse_base(fileReader, xml):
     #block 28
     #the last 5 bytes contain the enabled victory types
     fileReader.pos = bit_block_position[28] - 5*8
-    victorytypes = (fileReader.read_byte(), fileReader.read_byte(), fileReader.read_byte(), fileReader.read_byte(), fileReader.read_byte() )
+    victorytypes = (fileReader.read_byte(), fileReader.read_byte(), fileReader.read_byte(), fileReader.read_byte(), fileReader.read_byte())
+    print("\nVictory types enabled:")
+    for idx, enabled in enumerate(victorytypes, start=1):
+        if idx in victories:
+            print(f"- {victories[idx]}: {'Yes' if enabled else 'No'}")
 
     #block 29
     # have the game options
     fileReader.find(b'GAMEOPTION', bit_block_position[28]+32, bit_block_position[29])
     fileReader.pos -= 32
     gameoptions = []
+    print("\nGame options:")
     while fileReader.pos < bit_block_position[29]:
-        s = fileReader.read_string()
-        if s == "":
+        option = fileReader.read_string()
+        if option == "":
             break
         state = fileReader.read_int()
-        gameoptions.append((s, state))
+        print(f"- {option}: {'Enabled' if state else 'Disabled'}")
+        gameoptions.append((option, state))
 
     #TODO: block 30-31
 
@@ -215,28 +259,36 @@ def parse_compressed_payload(fileReader, xml):
             n = ET.SubElement(ns, "note")
             n.text = f.read_string()
 
-        #fast forward to another list skipping some unknown bytes for now
+        print("\nSkipping to next data section...")
         f.pos = f.find_first('0xC1F2439C016F26110F014A49D3CA01A564ABAD01')[0] + 20 * 8
 
         #skipping some 20 bytes long blocks
         nb = f.read_int()
+        print(f"\nSkipping {nb} blocks of 24 bytes each...")
         for i in range(0,nb):
             f.skip_bytes(24)
 
         #get some city stuff notification
         nb_cities = f.read_int()
+        print(f"\nReading {nb_cities} city notifications:")
         citiesXml = ET.SubElement(details, 'citynotes')
         for i in range(0,nb_cities):
+            city_note = f.read_string()
+            print(f"City note {i+1}: {city_note}")
             cityXml = ET.SubElement(citiesXml, 'note')
-            cityXml.text = f.read_string()
+            cityXml.text = city_note
 
         #get some notes about great persons
         nb_great_persons = f.read_int()
+        print(f"\nReading {nb_great_persons} great person notifications:")
         greatPersonsXml= ET.SubElement(details, 'gpnotes')
         for i in range(0, nb_great_persons):
+            gp_note = f.read_string()
+            print(f"Great Person note {i+1}: {gp_note}")
             gpXml = ET.SubElement(greatPersonsXml, 'note')
-            gpXml.text = f.read_string()
+            gpXml.text = gp_note
 
+        print("\nProcessing histogram data...")
         histograms = {}
         histogram_labels = {}
 
@@ -244,20 +296,25 @@ def parse_compressed_payload(fileReader, xml):
         # it seems that a lot of this data has been poluted with FFs. I"ll remove them for now.
         histograms_pos = f.findall(b'REPLAYDATASET_SCORE')
 
-        for pos in histograms_pos:
+        for pos_idx, pos in enumerate(histograms_pos, 1):
+            print(f"\nProcessing histogram dataset {pos_idx}:")
             f.pos = pos + 19*8 #had to skip because of a bug somewhere. TODO: investigate
             # data_sets = f.read_int()
             data_sets = 27 #1B. has to be hardcoded because of a bug somewhere TODO: investigate
+            print(f"Number of data sets: {data_sets}")
 
             histogram_labels[0] = 'REPLAYDATASET_SCORE'
             histograms[0] = {}
 
+            print("\nReading histogram labels:")
             for i in range(1, data_sets):
-                h =  f.read_string_safe()
+                h = f.read_string_safe()
+                print(f"Label {i}: {h}")
                 histogram_labels[i] = h
                 histograms[i] = {}
 
             n_ent = f.read_byte(3)
+            print(f"\nProcessing {n_ent} entries:")
 
             for i in range(0, n_ent):
                 n_data = f.read_byte(3)
@@ -269,7 +326,9 @@ def parse_compressed_payload(fileReader, xml):
                             turn = f.read_byte(skip=3)
                             value = f.read_byte(skip=3)
                             histograms[i][j][k] = value
+                            print(f"    Turn {turn}: {value}")
 
+            print(f"\nSaving histogram data to histograms.{pos}.pickle")
             jar = open('histograms.{0}.pickle'.format(pos), 'wb')
             pickle.dump(histograms, jar)
             jar.close()
